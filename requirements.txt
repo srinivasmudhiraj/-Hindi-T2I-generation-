@@ -1,0 +1,16 @@
+Hardware requirement:
+
+GPU with minimum 16 GB
+
+
+Software Requirments:
+
+tensorflow                 
+tensorflow-gpu  
+transformers
+PyArabic
+farasapy
+python-bidi
+arabic-reshaper
+tensorboard
+tqdm                          
