@@ -215,31 +215,53 @@ def load_model():
 tokenizer, arabert_prep, text_encoder, netG, wordtoix = load_model()
 
 def main():
-    #logo_path = "/home/icmr/Downloads/new_logo_2.jpg"  # Change this to the actual path of your logo
-    #st.image(logo_path, width=50) 
+
     st.title("Hindi Text-2-Image Generation")
-    st.write('\n\n')
-    selected_caption = st.selectbox( 'Select The Caption', 
-    ('बड़े पंखों और बिल के साथ एक बड़ा पक्षी।',
-           'लाल चिड़िया'))
+    st.write("\n\n")
 
-    caption = st.text_input("Enter hindi caption", selected_caption)
-    n_copies = st.slider('Number of Generated Images', min_value=1, max_value=12, value=3, step=1)
+    # Predefined captions (default first one selected)
+    selected_caption = st.selectbox(
+        "Select a Caption",
+        (
+            "बड़े पंखों और बिल के साथ एक बड़ा पक्षी।",
+            "लाल चिड़िया",
+        ),
+    )
 
-    if st.button('Generate Image'):
-        generated_images = generate(caption, tokenizer, arabert_prep, text_encoder, netG, wordtoix, copies= n_copies)
-        st.image(generated_images, caption = [f'Generated Image {i + 1}' for i in range(len(generated_images))], width= None)
-        # for img in generated_images:
-        #   st.image(img, caption = 'Generated Image.', width=None)
-    st.markdown("<br><br><br>", unsafe_allow_html=True)  # Adds more space before the developer message
+    # Allow user to enter or edit caption
+    caption = st.text_input("Enter Hindi Caption", selected_caption)
+
+    # Choose number of images to generate
+    n_copies = st.slider(
+        "Number of Generated Images",
+        min_value=1,
+        max_value=12,
+        value=3,
+        step=1,
+    )
+
+    # Generate images on button click
+    if st.button("Generate Image"):
+        generated_images = generate(
+            caption, tokenizer, arabert_prep, text_encoder, netG, wordtoix, copies=n_copies
+        )
+        st.image(
+            generated_images,
+            caption=[f"Generated Image {i + 1}" for i in range(len(generated_images))],
+            width=None,
+        )
+
+    # Developer credit
+    st.markdown("<br><br><br>", unsafe_allow_html=True)
     st.markdown(
         """
         <div style="text-align: center; color: #aaa; font-size: 18px;">
-            Developed By: srinivas
+            Developed By: Srinivas
         </div>
-        """, 
-        unsafe_allow_html=True
+        """,
+        unsafe_allow_html=True,
     )
+
 
 if __name__ == "__main__":
     main()
