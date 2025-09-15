@@ -29,59 +29,60 @@ else:
 
 
 def prepare_data(data):
-    imgs, captions, captions_lens, class_ids, keys = data
+    imgs, captions, cap_lens, class_ids, keys = data
 
-    # sort data by the length in a decreasing order
-    sorted_cap_lens, sorted_cap_indices = \
-        torch.sort(captions_lens, 0, True)
+    # sort by caption lengths (descending)
+    sorted_lens, sorted_idx = torch.sort(cap_lens, dim=0, descending=True)
 
-    real_imgs = []
-    for i in range(len(imgs)):
-        imgs[i] = imgs[i][sorted_cap_indices]
+    processed_imgs = []
+    for i, img_set in enumerate(imgs):
+        img_set = img_set[sorted_idx]
         if cfg.CUDA:
-            real_imgs.append(Variable(imgs[i]).cuda())
+            processed_imgs.append(Variable(img_set).cuda())
         else:
-            real_imgs.append(Variable(imgs[i]))
+            processed_imgs.append(Variable(img_set))
 
-    captions = captions[sorted_cap_indices].squeeze()
-    class_ids = class_ids[sorted_cap_indices].numpy()
-    # sent_indices = sent_indices[sorted_cap_indices]
-    keys = [keys[i] for i in sorted_cap_indices.numpy()]
-    # print('keys', type(keys), keys[-1])  # list
+    # re-order other elements based on sorted indices
+    captions = captions[sorted_idx].squeeze()
+    class_ids = class_ids[sorted_idx].numpy()
+    keys = [keys[i] for i in sorted_idx.numpy()]
+
     if cfg.CUDA:
         captions = Variable(captions).cuda()
-        sorted_cap_lens = Variable(sorted_cap_lens).cuda()
+        sorted_lens = Variable(sorted_lens).cuda()
     else:
         captions = Variable(captions)
-        sorted_cap_lens = Variable(sorted_cap_lens)
+        sorted_lens = Variable(sorted_lens)
 
-    return [real_imgs, captions, sorted_cap_lens,
-            class_ids, keys]
+    return [processed_imgs, captions, sorted_lens, class_ids, keys]
 
 
-def get_imgs(img_path, imsize, bbox=None,
-             transform=None, normalize=None):
-    img = Image.open(img_path).convert('RGB')
+
+def get_imgs(img_path, imsize, bbox=None, transform=None, normalize=None):
+    # Load image and ensure RGB mode
+    img = Image.open(img_path).convert("RGB")
     width, height = img.size
+
+    # Apply bounding box crop if provided
     if bbox is not None:
         r = int(np.maximum(bbox[2], bbox[3]) * 0.75)
-        center_x = int((2 * bbox[0] + bbox[2]) / 2)
-        center_y = int((2 * bbox[1] + bbox[3]) / 2)
-        y1 = np.maximum(0, center_y - r)
-        y2 = np.minimum(height, center_y + r)
-        x1 = np.maximum(0, center_x - r)
-        x2 = np.minimum(width, center_x + r)
+        cx = int((2 * bbox[0] + bbox[2]) / 2)  # center x
+        cy = int((2 * bbox[1] + bbox[3]) / 2)  # center y
+
+        x1 = np.maximum(0, cx - r)
+        x2 = np.minimum(width, cx + r)
+        y1 = np.maximum(0, cy - r)
+        y2 = np.minimum(height, cy + r)
+
         img = img.crop([x1, y1, x2, y2])
 
+    # Apply preprocessing transforms if given
     if transform is not None:
         img = transform(img)
-        
-    ret = []
-    ret.append(normalize(img))
-    #if cfg.GAN.B_DCGAN:
-    
- 
-    return ret
+
+    # Normalize and wrap in list
+    output = [normalize(img)]
+    return output
 
 
 class TextDataset(data.Dataset):
