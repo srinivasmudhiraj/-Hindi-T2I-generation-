@@ -58,54 +58,60 @@ def parse_args():
     return args
 
 
-def sampling(text_encoder, netG, dataloader,device, validation= False):
-    
-    state_epoch = 0
-    model_dir = '../models/%s/checkpoint_nets.pth' % (cfg.CONFIG_NAME)
-        
-    if(not validation and os.path.exists(model_dir)):
-        checkpoint = torch.load(model_dir)
-        netG.load_state_dict(checkpoint['netG_state'])
-        state_epoch = checkpoint['epoch']
+def sampling(text_encoder, netG, dataloader, device, validation=False):
+    """
+    Generate and save fake images from text embeddings.
+    """
+
+    last_epoch = 0
+    model_path = f"../models/{cfg.CONFIG_NAME}/checkpoint_nets.pth"
+
+    # Load generator checkpoint if available (unless in validation mode)
+    if not validation and os.path.exists(model_path):
+        checkpoint = torch.load(model_path)
+        netG.load_state_dict(checkpoint["netG_state"])
+        last_epoch = checkpoint["epoch"]
         netG.eval()
-        print("loading last checkpoint at epoch: ",state_epoch)
-        
+        print("Loading generator checkpoint from epoch:", last_epoch)
+    elif not validation:
+        print("No checkpoint found, starting without pretrained weights.")
+
     batch_size = cfg.TRAIN.BATCH_SIZE
-    save_dir = '../images/%s/test' % (cfg.CONFIG_NAME)
+    save_dir = f"../images/{cfg.CONFIG_NAME}/test"
     mkdir_p(save_dir)
-    cnt = 0
-    for i in range(1):  # (cfg.TEXT.CAPTIONS_PER_IMAGE):
+
+    counter = 0
+    for i in range(1):  # placeholder for cfg.TEXT.CAPTIONS_PER_IMAGE
         for step, data in enumerate(dataloader, 0):
-            imags, captions, cap_lens, class_ids, keys = prepare_data(data)
-            cnt += batch_size
+            images, captions, cap_lens, class_ids, keys = prepare_data(data)
+            counter += batch_size
+
             hidden = text_encoder.init_hidden(batch_size)
-            # words_embs: batch_size x nef x seq_len
-            # sent_emb: batch_size x nef
-            words_embs, sent_emb = text_encoder(captions, cap_lens, hidden)
-            words_embs, sent_emb = words_embs.detach(), sent_emb.detach()
-            #######################################################
-            # (2) Generate fake images
-            ######################################################
+            _, sent_embs = text_encoder(captions, cap_lens, hidden)
+            sent_embs = sent_embs.detach()
+
+            # Generate fake images with noise input
+            noise = torch.randn(batch_size, 100, device=device)
             with torch.no_grad():
-                noise = torch.randn(batch_size, 100)
-                noise=noise.to(device)
-                fake_imgs = netG(noise,sent_emb)
-            for j in range(batch_size):
-                s_tmp = '%s/%s' % (save_dir, keys[j])
-                folder = s_tmp[:s_tmp.rfind('/')]
+                fake_imgs = netG(noise, sent_embs)
+
+            # Save each image
+            for j, key in enumerate(keys):
+                base_path = f"{save_dir}/{key}"
+                folder = os.path.dirname(base_path)
                 if not os.path.isdir(folder):
-                    print('Make a new folder: ', folder)
+                    print("Creating new folder:", folder)
                     mkdir_p(folder)
-                im = fake_imgs[j].data.cpu().numpy()
-                # [-1, 1] --> [0, 255]
-                im = (im + 1.0) * 127.5
-                im = im.astype(np.uint8)
-                im = np.transpose(im, (1, 2, 0))
-                im = Image.fromarray(im)
-                fullpath = '%s_%3d.png' % (s_tmp,i)
-                im.save(fullpath)
-                
-    return state_epoch
+
+                img_arr = fake_imgs[j].cpu().numpy()
+                img_arr = ((img_arr + 1.0) * 127.5).astype(np.uint8)  # scale [-1, 1] → [0, 255]
+                img_arr = np.transpose(img_arr, (1, 2, 0))
+
+                img = Image.fromarray(img_arr)
+                img.save(f"{base_path}_{i}.png")
+
+    return last_epoch
+
 
 def validate(text_encoder, netG,device, writer, epoch):
     dataset = TextBertDataset(cfg.DATA_DIR, 'test',
@@ -143,121 +149,134 @@ def validate(text_encoder, netG,device, writer, epoch):
     
   
   
-def train(dataloader,netG,netD,text_encoder,optimizerG,optimizerD,state_epoch,batch_size,device, writer):
-    
-  path = '../models/%s/checkpoint_nets.pth' % (cfg.CONFIG_NAME)
+def train(dataloader, netG, netD, text_encoder, optimizerG, optimizerD, start_epoch, batch_size, device, writer):
   
-  if(os.path.exists(path)):
-      checkpoint = torch.load(path)
-      netG.load_state_dict(checkpoint['netG_state'])
-      netD.load_state_dict(checkpoint['netD_state'])
-      optimizerG.load_state_dict(checkpoint['optimizerG_state'])
-      optimizerD.load_state_dict(checkpoint['optimizerD_state'])
-      state_epoch = checkpoint['epoch']
-      netG.train()
-      netD.train()
-      print("Loading last checkpoint at epoch: ",state_epoch)
-  else:
-      print("No checkpoint to load")
-      
-      
 
-  for epoch in range(state_epoch+1, cfg.TRAIN.MAX_EPOCH+1):
-      D_loss = 0.0
-      G_loss = 0.0
-      for step, data in enumerate(dataloader, 0):
-          
-          imags, captions, cap_lens, class_ids, keys = prepare_data(data)
-          hidden = text_encoder.init_hidden(batch_size)
-          
-          # words_embs: batch_size x nef x seq_len
-          # sent_emb: batch_size x nef
-          words_embs, sent_emb = text_encoder(captions, cap_lens, hidden)
-          words_embs, sent_emb = words_embs.detach(), sent_emb.detach()
+    checkpoint_path = f"../models/{cfg.CONFIG_NAME}/checkpoint_nets.pth"
 
-          imgs=imags[0].to(device)
-          real_features = netD(imgs)
-          
-          output = netD.COND_DNET(real_features,sent_emb)
-          errD_real = torch.nn.ReLU()(1.0 - output).mean()
+    # Load checkpoint if it exists
+    if os.path.exists(checkpoint_path):
+        ckpt = torch.load(checkpoint_path)
+        netG.load_state_dict(ckpt['netG_state'])
+        netD.load_state_dict(ckpt['netD_state'])
+        optimizerG.load_state_dict(ckpt['optimizerG_state'])
+        optimizerD.load_state_dict(ckpt['optimizerD_state'])
+        start_epoch = ckpt['epoch']
+        netG.train()
+        netD.train()
+        print(f"Resuming training from checkpoint at epoch {start_epoch}")
+    else:
+        print("No existing checkpoint found, starting new training.")
 
-          output = netD.COND_DNET(real_features[:(batch_size - 1)], sent_emb[1:batch_size])
-          errD_mismatch = torch.nn.ReLU()(1.0 + output).mean()
+    # Main training loop
+    for epoch in range(start_epoch + 1, cfg.TRAIN.MAX_EPOCH + 1):
+        cumulative_d_loss, cumulative_g_loss = 0.0, 0.0
 
-          # synthesize fake images
-          noise = torch.randn(batch_size, 100)
-          noise=noise.to(device)
-          fake = netG(noise,sent_emb)  
-          
-          # G does not need update with D
-          fake_features = netD(fake.detach()) 
+        for step, batch in enumerate(dataloader, start=0):
+            images, captions, cap_lens, class_ids, keys = prepare_data(batch)
+            hidden_state = text_encoder.init_hidden(batch_size)
 
-          errD_fake = netD.COND_DNET(fake_features,sent_emb)
-          errD_fake = torch.nn.ReLU()(1.0 + errD_fake).mean()          
+            # Extract embeddings
+            word_embs, sent_embs = text_encoder(captions, cap_lens, hidden_state)
+            word_embs, sent_embs = word_embs.detach(), sent_embs.detach()
 
-          errD = errD_real + (errD_fake + errD_mismatch)/2.0
-          optimizerD.zero_grad()
-          optimizerG.zero_grad()
-          errD.backward()
-          optimizerD.step()
+            real_imgs = images[0].to(device)
+            real_features = netD(real_imgs)
 
-          #MA-GP
-          interpolated = (imgs.data).requires_grad_()
-          sent_inter = (sent_emb.data).requires_grad_()
-          features = netD(interpolated)
-          out = netD.COND_DNET(features,sent_inter)
-          grads = torch.autograd.grad(outputs=out,
-                                  inputs=(interpolated,sent_inter),
-                                  grad_outputs=torch.ones(out.size()).cuda(),
-                                  retain_graph=True,
-                                  create_graph=True,
-                                  only_inputs=True)
-          grad0 = grads[0].view(grads[0].size(0), -1)
-          grad1 = grads[1].view(grads[1].size(0), -1)
-          grad = torch.cat((grad0,grad1),dim=1)                        
-          grad_l2norm = torch.sqrt(torch.sum(grad ** 2, dim=1))
-          d_loss_gp = torch.mean((grad_l2norm) ** 6)
-          d_loss = 2.0 * d_loss_gp
-          optimizerD.zero_grad()
-          optimizerG.zero_grad()
-          d_loss.backward()
-          optimizerD.step()
-          
-          # update G
-          features = netD(fake)
-          output = netD.COND_DNET(features,sent_emb)
-          errG = - output.mean()
-          optimizerG.zero_grad()
-          optimizerD.zero_grad()
-          errG.backward()
-          optimizerG.step()
+            # Discriminator real & mismatch loss
+            real_out = netD.COND_DNET(real_features, sent_embs)
+            loss_d_real = torch.nn.ReLU()(1.0 - real_out).mean()
 
-          D_loss += errD.item() + d_loss.item()
-          G_loss += errG.item()
+            mismatch_out = netD.COND_DNET(real_features[:batch_size - 1], sent_embs[1:batch_size])
+            loss_d_mismatch = torch.nn.ReLU()(1.0 + mismatch_out).mean()
 
-          print('[%d/%d][%d/%d] Loss_D: %.3f Loss_G %.3f total_Loss_D: %.3f total_Loss_G %.3f'
-              % (epoch, cfg.TRAIN.MAX_EPOCH, step, len(dataloader), errD.item(), errG.item(), D_loss, G_loss))
+            # Generate fake samples
+            z = torch.randn(batch_size, 100, device=device)
+            fake_imgs = netG(z, sent_embs)
 
-      vutils.save_image(fake.data,
-                      '../images/%s/fakes/fake_samples_epoch_%03d.png' % (cfg.CONFIG_NAME, epoch),
-                      normalize=True)
+            fake_features = netD(fake_imgs.detach())
+            loss_d_fake = netD.COND_DNET(fake_features, sent_embs)
+            loss_d_fake = torch.nn.ReLU()(1.0 + loss_d_fake).mean()
 
-      # if epoch%10==0:
-      torch.save({
-          'epoch': epoch,
-          'netG_state': netG.state_dict(),
-          'optimizerG_state': optimizerG.state_dict(),
-          'netD_state': netD.state_dict(),
-          'optimizerD_state': optimizerD.state_dict()
-          }, path)
-          
-      writer.add_scalar('D_Loss/train', D_loss, epoch)
-      writer.add_scalar('G_Loss/train', G_loss, epoch)
-      
-      if epoch%50 == 0:
-          return epoch
+            # Combine discriminator loss
+            total_d_loss = loss_d_real + (loss_d_fake + loss_d_mismatch) / 2.0
+            optimizerD.zero_grad()
+            optimizerG.zero_grad()
+            total_d_loss.backward()
+            optimizerD.step()
 
-  return cfg.TRAIN.MAX_EPOCH
+            # MA-GP regularization
+            interpolated_imgs = real_imgs.data.requires_grad_()
+            interpolated_sent = sent_embs.data.requires_grad_()
+            interp_features = netD(interpolated_imgs)
+            interp_out = netD.COND_DNET(interp_features, interpolated_sent)
+
+            grads = torch.autograd.grad(
+                outputs=interp_out,
+                inputs=(interpolated_imgs, interpolated_sent),
+                grad_outputs=torch.ones_like(interp_out).cuda(),
+                retain_graph=True,
+                create_graph=True,
+                only_inputs=True
+            )
+
+            grad_img = grads[0].view(grads[0].size(0), -1)
+            grad_sent = grads[1].view(grads[1].size(0), -1)
+            grad_concat = torch.cat((grad_img, grad_sent), dim=1)
+            grad_norm = torch.sqrt(torch.sum(grad_concat ** 2, dim=1))
+            gp_loss = torch.mean((grad_norm) ** 6)
+            reg_loss_d = 2.0 * gp_loss
+
+            optimizerD.zero_grad()
+            optimizerG.zero_grad()
+            reg_loss_d.backward()
+            optimizerD.step()
+
+            # Generator loss
+            gen_features = netD(fake_imgs)
+            gen_out = netD.COND_DNET(gen_features, sent_embs)
+            g_loss = -gen_out.mean()
+
+            optimizerG.zero_grad()
+            optimizerD.zero_grad()
+            g_loss.backward()
+            optimizerG.step()
+
+            # Track losses
+            cumulative_d_loss += total_d_loss.item() + reg_loss_d.item()
+            cumulative_g_loss += g_loss.item()
+
+            print(
+                f"[{epoch}/{cfg.TRAIN.MAX_EPOCH}][{step}/{len(dataloader)}] "
+                f"D_Loss: {total_d_loss.item():.3f} G_Loss: {g_loss.item():.3f} "
+                f"Cumulative_D: {cumulative_d_loss:.3f} Cumulative_G: {cumulative_g_loss:.3f}"
+            )
+
+        # Save generated samples
+        vutils.save_image(
+            fake_imgs.data,
+            f"../images/{cfg.CONFIG_NAME}/fakes/fake_samples_epoch_{epoch:03d}.png",
+            normalize=True
+        )
+
+        # Save checkpoint
+        torch.save({
+            'epoch': epoch,
+            'netG_state': netG.state_dict(),
+            'optimizerG_state': optimizerG.state_dict(),
+            'netD_state': netD.state_dict(),
+            'optimizerD_state': optimizerD.state_dict()
+        }, checkpoint_path)
+
+        # Log metrics
+        writer.add_scalar('D_Loss/train', cumulative_d_loss, epoch)
+        writer.add_scalar('G_Loss/train', cumulative_g_loss, epoch)
+
+        # Optional early exit
+        if epoch % 50 == 0:
+            return epoch
+
+    return cfg.TRAIN.MAX_EPOCH
 
 
 
