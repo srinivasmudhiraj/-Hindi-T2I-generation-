@@ -8,10 +8,9 @@ Make sure the following dependencies are installed:
 tensorflow
 tensorflow-gpu
 transformers
-PyArabic
 farasapy
 python-bidi
-arabic-reshaper
+reshaper
 tensorboard
 tqdm
 
