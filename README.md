@@ -30,3 +30,7 @@ python main_train.py --cfg cfg/bird.yml
 ------------------------------------------------------
 - Ensure GPU support (tensorflow-gpu) is installed for faster training.
 - The project uses Hindi captions mapped with the CUB dataset.
+
+References
+------------------------------------------------------
+Wah, C., Branson, S., Welinder, P., Perona, P., & Belongie, S. Caltech-UCSD Birds-200-2011 Dataset. The Caltech Institute Archives (California Institute of Technology). https://doi.org/10.57702/kvkwb8bo
