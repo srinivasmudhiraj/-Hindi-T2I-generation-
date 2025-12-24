@@ -7,5 +7,5 @@
 📊 Evaluation
 
 1. Navigate to the codes/ directory:
-cd codes
+cd /codes
                                                                                                                                                                                        2.▶️Run the Hindi T2I notebook.
