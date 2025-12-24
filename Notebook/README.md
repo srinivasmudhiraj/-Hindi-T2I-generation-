@@ -8,4 +8,4 @@
 
 1. Navigate to the codes/ directory:
 cd codes
-2.▶️Run the Hindi T2I notebook.
+                                                                                                                                                                                       2.▶️Run the Hindi T2I notebook.
